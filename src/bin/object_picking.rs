@@ -74,9 +74,9 @@ fn main() {
     let vertex_buffer = {
 
         CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), [
-                                       Vertex { position: [-0.5, -0.25, 0.0], color: [1.0, 0.0, 0.0]},
-                                       Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0]},
-                                       Vertex { position: [0.25, -0.1, 0.0], color: [1.0, 0.0, 0.0]}
+                                       Vertex { position: [-1.0, -0.25, 0.0], color: [0.0, 0.0, 1.0]},
+                                       Vertex { position: [0.0, 0.5, 0.0], color: [0.0, 0.0, 1.0]},
+                                       Vertex { position: [0.25, -0.1, 0.2], color: [0.0, 0.0, 1.0]}
         ].iter().cloned()).unwrap()
     };
 
@@ -97,7 +97,7 @@ fn main() {
     // A second triangle
     let vertex_buffer_3 = {
         CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), [
-                                       Vertex { position: [-1.0, 1.0, 0.5], color: [1.0, 0.0, 0.0]},
+                                       Vertex { position: [0.0, 1.0, 0.5], color: [1.0, 0.0, 0.0]},
                                        Vertex { position: [1.0, -1.0, 0.5], color: [1.0, 0.0, 0.0]},
                                        Vertex { position: [1.0, 1.0, 0.5], color: [1.0, 0.0, 0.0]}
         ].iter().cloned()).unwrap()
@@ -183,7 +183,7 @@ fn main() {
         };
 
         // Specify the color to clear the framebuffer with i.e. blue
-        let clear_values = vec!([0.0, 0.0, 1.0, 1.0].into(), 1f32.into());
+        let clear_values = vec!([0.0, 0.0, 0.0, 1.0].into(), 1f32.into());
 
         let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap()
             .begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
