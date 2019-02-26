@@ -1,17 +1,16 @@
 #[macro_use]
 extern crate vulkano;
 
-// Provides the `shader!` macro that is used to generate code for using shaders.
-extern crate vulkano_shaders;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
+use vulkano::image::ImageUsage;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
-use vulkano::device::{Device, DeviceExtensions};
+use vulkano::device::{Queue, Device, DeviceExtensions};
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, Subpass, RenderPassAbstract};
 use vulkano::format::Format;
 use vulkano::image::SwapchainImage;
 use vulkano::image::attachment::AttachmentImage;
 use vulkano::instance::{Instance, PhysicalDevice};
-use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::swapchain::{AcquireError, PresentMode, SurfaceTransform, Swapchain, SwapchainCreationError};
 use vulkano::swapchain;
@@ -23,10 +22,167 @@ use vulkano_win::VkSurfaceBuild;
 use winit::{EventsLoop, Window, WindowBuilder, Event, WindowEvent};
 
 use std::sync::Arc;
+use std::iter;
 
 #[derive(Debug, Clone)]
 struct Vertex { position: [f32; 3], color: [f32; 3], }
 impl_vertex!(Vertex, position, color);
+
+
+struct ObjectPicker {
+    queue: Arc<Queue>,
+
+    // Tells the GPU where to write the color
+    render_pass: Arc<RenderPassAbstract + Send + Sync>,
+    pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
+
+    // Two attachments -> color and depth
+    framebuffer: Arc<FramebufferAbstract + Send + Sync>,
+
+    // color attachment
+    image: Arc<AttachmentImage>,
+
+    // Will have the data from `image` copied to it.
+    buf: Arc<CpuAccessibleBuffer<[u8]>>,
+
+}
+
+impl ObjectPicker {
+
+    fn new(queue: Arc<Queue>, dimensions: [u32; 2]) -> Self {
+
+        // Create the image to which we are going to render to. This
+        // is not a swapchain image as we do not render to screen.
+        let image_usage = ImageUsage {
+            transfer_source: true, // This is necessary to copy to external buffer
+            .. ImageUsage::none()
+        };
+
+        let image = AttachmentImage::with_usage(
+            queue.device().clone(),
+            dimensions,
+            Format::R8G8B8A8Unorm, // simple format for encoding the ID as a color
+            image_usage).unwrap();
+
+        let depth_buffer = AttachmentImage::transient(
+            queue.device().clone(),
+            dimensions,
+            Format::D16Unorm).unwrap();
+
+        let render_pass = Arc::new(vulkano::single_pass_renderpass!(
+                queue.device().clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: Format::R8G8B8A8Unorm,
+                        samples: 1,
+                    },
+                    depth: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::D16Unorm,
+                        samples: 1,
+                    }
+                },
+                pass: {
+                    color: [color],
+                    depth_stencil: {depth}
+                }
+        ).unwrap());
+
+        // Use our custom image in the framebuffer.
+        let framebuffer = Arc::new(Framebuffer::start(render_pass.clone())
+                                   .add(image.clone()).unwrap()
+                                   .add(depth_buffer.clone()).unwrap()
+                                   .build().unwrap());
+
+        // That is the CPU accessible buffer to which we'll transfer the image content
+        // so that we can read the data. It should be as large as 4 the number of pixels (because we
+        // store rgba value, so 4 time u8)
+        let buf = CpuAccessibleBuffer::from_iter(
+            queue.device().clone(), BufferUsage::all(),
+            (0 .. dimensions[0] * dimensions[1] * 4).map(|_| 0u8)).expect("Failed to create buffer");
+
+
+        //
+        let vs = pick_vs::Shader::load(queue.device().clone()).unwrap();
+        let fs = pick_fs::Shader::load(queue.device().clone()).unwrap();
+        let pipeline = Arc::new(GraphicsPipeline::start()
+                                .vertex_input_single_buffer::<Vertex>()
+                                .vertex_shader(vs.main_entry_point(), ())
+                                .triangle_list()
+                                .viewports_dynamic_scissors_irrelevant(1)
+                                .depth_stencil_simple_depth()
+                                .viewports(iter::once(Viewport {
+                                    origin: [0.0, 0.0],
+                                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                                    depth_range: 0.0 .. 1.0,
+                                }))
+                                .fragment_shader(fs.main_entry_point(), ())
+                                .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+                                .build(queue.device().clone())
+                                .unwrap());
+
+        ObjectPicker {
+            queue,
+            render_pass,
+            pipeline,
+            framebuffer,
+            image,
+            buf,
+        }
+
+    }
+
+    fn create_pushconstants(id: usize) -> pick_vs::ty::PushConstants {
+        pick_vs::ty::PushConstants {
+            color: 
+                [
+                ((id & 0xFF) as f32) / 255.0,
+                ((id >> 8) & 0xFF) as f32 / 255.0,
+                ((id >> 16) & 0xFF) as f32 / 255.0,
+                1.0], // Transparent means no entity.
+        }
+    }
+
+    /// Return either ID of picked object or None if did not click on anything
+    fn pick_object(&mut self, x: f64, y: f64, objects: Vec<Arc<CpuAccessibleBuffer<[Vertex]>>>) -> Option<usize> {
+
+        let clear_values = vec!([0.0, 0.0, 0.0, 0.0].into(), 1f32.into());
+
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary_one_time_submit(
+            self.queue.device().clone(),
+            self.queue.family()).unwrap()
+            .begin_render_pass(self.framebuffer.clone(), false, clear_values).unwrap();
+
+        // Now, render all objects and use the ID as push constant.
+        for (id, object) in objects.iter().enumerate() {
+                
+            let push_constant = ObjectPicker::create_pushconstants(id);
+            command_buffer_builder = command_buffer_builder.draw(
+                self.pipeline.clone(),
+                &DynamicState::none(),
+                vec![object.clone()],
+                (),
+                push_constant,
+                ).unwrap();
+        }
+
+        command_buffer_builder = command_buffer_builder.end_render_pass().unwrap();
+
+        // Now copy the image to the CPU accessible buffer.
+        command_buffer_builder = command_buffer_builder
+            .copy_image_to_buffer(self.image.clone(), self.buf.clone()).unwrap();
+
+        let command_buffer = command_buffer_builder.build().unwrap();
+
+        
+
+        None
+    }
+
+}
 
 
 fn main() {
@@ -146,10 +302,13 @@ fn main() {
 
     let mut framebuffers = window_size_dependent_setup(device.clone(), &images, render_pass.clone(), &mut dynamic_state);
 
+
+    // -------------------------------------------
+    // Now we redo the same but for object picking
+    // --------------------------------------------
     let mut recreate_swapchain = false;
-
-
     let mut previous_frame_end = Box::new(sync::now(device.clone())) as Box<GpuFuture>;
+
 
 
     loop {
@@ -190,7 +349,7 @@ fn main() {
             .unwrap()
             .draw(pipeline.clone(), &dynamic_state, vertex_buffer.clone(), (), ())
             .unwrap()
-        .draw(pipeline.clone(), &dynamic_state, vertex_buffer_2.clone(), (), ()).unwrap()
+            .draw(pipeline.clone(), &dynamic_state, vertex_buffer_2.clone(), (), ()).unwrap()
             .draw(pipeline.clone(), &dynamic_state, vertex_buffer_3.clone(), (), ()).unwrap()
             .end_render_pass()
             .unwrap()
@@ -286,6 +445,43 @@ layout(location = 0) out vec4 f_color;
 
 void main() {
     f_color = vec4(frag_color, 1.0);
+}
+"
+}
+}
+
+mod pick_vs {
+    vulkano_shaders::shader!{
+        ty: "vertex",
+        src: "
+#version 450
+
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 color;
+layout(location = 0) out vec4 frag_color;
+
+layout (push_constant) uniform PushConstants {
+        vec4 color;
+} pushConstants;
+
+void main() {
+    gl_Position = vec4(position, 1.0);
+    frag_color = pushConstants.color;
+}"
+}
+}
+
+mod pick_fs {
+    vulkano_shaders::shader!{
+        ty: "fragment",
+        src: "
+#version 450
+
+layout(location = 0) in vec4 frag_color;
+layout(location = 0) out vec4 f_color;
+
+void main() {
+    f_color = frag_color;
 }
 "
 }
