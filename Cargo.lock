@@ -715,6 +715,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "tobj"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "unicode-xid"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -747,6 +752,7 @@ dependencies = [
 name = "vulkano-samples"
 version = "0.1.0"
 dependencies = [
+ "tobj 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "vulkano 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "vulkano-shaders 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "vulkano-win 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -996,6 +1002,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum stable_deref_trait 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
 "checksum stb_truetype 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "69b7df505db8e81d54ff8be4693421e5b543e08214bd8d99eb761fcb4d5668ba"
 "checksum syn 0.15.26 (registry+https://github.com/rust-lang/crates.io-index)" = "f92e629aa1d9c827b2bb8297046c1ccffc57c99b947a680d3ccff1f136a3bee9"
+"checksum tobj 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "81b6e0199032d341b8491817f2da249c9aa150d18534b58865c2ebe787b29db1"
 "checksum unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fc72304796d0818e357ead4e000d19c9c174ab23dc11093ac919054d20a6a7fc"
 "checksum vk-sys 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "36f5fd4a7d6d5d19808610583131c0aed271556527cad4cb71c436831a28e059"
 "checksum void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
